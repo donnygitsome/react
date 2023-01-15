@@ -38,7 +38,7 @@ import {
   enableTransitionTracing,
   enableUseHook,
   enableUseMemoCacheHook,
-  enableUseEventHook,
+  enableUseEffectEventHook,
   enableLegacyCache,
   debugRenderPhaseSideEffectsForStrictMode,
 } from 'shared/ReactFeatureFlags';
@@ -144,6 +144,7 @@ import {
   createThenableState,
 } from './ReactFiberThenable';
 import type {ThenableState} from './ReactFiberThenable';
+import type {BatchConfigTransition} from './ReactFiberTracingMarkerComponent';
 
 const {ReactCurrentDispatcher, ReactCurrentBatchConfig} = ReactSharedInternals;
 
@@ -1801,7 +1802,7 @@ function checkIfSnapshotChanged<T>(inst: StoreInstance<T>): boolean {
   }
 }
 
-function forceStoreRerender(fiber) {
+function forceStoreRerender(fiber: Fiber) {
   const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
   if (root !== null) {
     scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);
@@ -1934,7 +1935,7 @@ function mountRef<T>(initialValue: T): {current: T} {
           }
           return current;
         },
-        set current(value) {
+        set current(value: any) {
           if (currentlyRenderingFiber !== null && !didWarnAboutWrite) {
             if (hasBeenInitialized || !didCheckForLazyInit) {
               didWarnAboutWrite = true;
@@ -2051,7 +2052,7 @@ function updateEffect(
   updateEffectImpl(PassiveEffect, HookPassive, create, deps);
 }
 
-function useEventImpl<Args, Return, F: (...Array<Args>) => Return>(
+function useEffectEventImpl<Args, Return, F: (...Array<Args>) => Return>(
   payload: EventFunctionPayload<Args, Return, F>,
 ) {
   currentlyRenderingFiber.flags |= UpdateEffect;
@@ -2080,7 +2081,7 @@ function mountEvent<Args, Return, F: (...Array<Args>) => Return>(
   return function eventFn() {
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
-        "A function wrapped in useEvent can't be called during rendering.",
+        "A function wrapped in useEffectEvent can't be called during rendering.",
       );
     }
     return ref.impl.apply(undefined, arguments);
@@ -2092,12 +2093,12 @@ function updateEvent<Args, Return, F: (...Array<Args>) => Return>(
 ): F {
   const hook = updateWorkInProgressHook();
   const ref = hook.memoizedState;
-  useEventImpl({ref, nextImpl: callback});
+  useEffectEventImpl({ref, nextImpl: callback});
   // $FlowIgnore[incompatible-return]
   return function eventFn() {
     if (isInvalidExecutionContextForEventFunction()) {
       throw new Error(
-        "A function wrapped in useEvent can't be called during rendering.",
+        "A function wrapped in useEffectEvent can't be called during rendering.",
       );
     }
     return ref.impl.apply(undefined, arguments);
@@ -2383,7 +2384,7 @@ function startTransition(
   setPending(true);
 
   const prevTransition = ReactCurrentBatchConfig.transition;
-  ReactCurrentBatchConfig.transition = {};
+  ReactCurrentBatchConfig.transition = ({}: BatchConfigTransition);
   const currentTransition = ReactCurrentBatchConfig.transition;
 
   if (enableTransitionTracing) {
@@ -2408,6 +2409,7 @@ function startTransition(
     if (__DEV__) {
       if (prevTransition === null && currentTransition._updatedFibers) {
         const updatedFibersCount = currentTransition._updatedFibers.size;
+        currentTransition._updatedFibers.clear();
         if (updatedFibersCount > 10) {
           console.warn(
             'Detected a large number of updates inside startTransition. ' +
@@ -2415,7 +2417,6 @@ function startTransition(
               'Otherwise concurrent mode guarantees are off the table.',
           );
         }
-        currentTransition._updatedFibers.clear();
       }
     }
   }
@@ -2736,7 +2737,7 @@ function entangleTransitionUpdate<S, A>(
   }
 }
 
-function markUpdateInDevTools<A>(fiber, lane, action: A): void {
+function markUpdateInDevTools<A>(fiber: Fiber, lane: Lane, action: A): void {
   if (__DEV__) {
     if (enableDebugTracing) {
       if (fiber.mode & DebugTracingMode) {
@@ -2780,8 +2781,8 @@ if (enableUseHook) {
 if (enableUseMemoCacheHook) {
   (ContextOnlyDispatcher: Dispatcher).useMemoCache = throwInvalidHookError;
 }
-if (enableUseEventHook) {
-  (ContextOnlyDispatcher: Dispatcher).useEvent = throwInvalidHookError;
+if (enableUseEffectEventHook) {
+  (ContextOnlyDispatcher: Dispatcher).useEffectEvent = throwInvalidHookError;
 }
 
 const HooksDispatcherOnMount: Dispatcher = {
@@ -2805,7 +2806,6 @@ const HooksDispatcherOnMount: Dispatcher = {
   useId: mountId,
 };
 if (enableCache) {
-  // $FlowFixMe[escaped-generic] discovered when updating Flow
   (HooksDispatcherOnMount: Dispatcher).useCacheRefresh = mountRefresh;
 }
 if (enableUseHook) {
@@ -2814,8 +2814,8 @@ if (enableUseHook) {
 if (enableUseMemoCacheHook) {
   (HooksDispatcherOnMount: Dispatcher).useMemoCache = useMemoCache;
 }
-if (enableUseEventHook) {
-  (HooksDispatcherOnMount: Dispatcher).useEvent = mountEvent;
+if (enableUseEffectEventHook) {
+  (HooksDispatcherOnMount: Dispatcher).useEffectEvent = mountEvent;
 }
 const HooksDispatcherOnUpdate: Dispatcher = {
   readContext,
@@ -2846,8 +2846,8 @@ if (enableUseMemoCacheHook) {
 if (enableUseHook) {
   (HooksDispatcherOnUpdate: Dispatcher).use = use;
 }
-if (enableUseEventHook) {
-  (HooksDispatcherOnUpdate: Dispatcher).useEvent = updateEvent;
+if (enableUseEffectEventHook) {
+  (HooksDispatcherOnUpdate: Dispatcher).useEffectEvent = updateEvent;
 }
 
 const HooksDispatcherOnRerender: Dispatcher = {
@@ -2879,8 +2879,8 @@ if (enableUseHook) {
 if (enableUseMemoCacheHook) {
   (HooksDispatcherOnRerender: Dispatcher).useMemoCache = useMemoCache;
 }
-if (enableUseEventHook) {
-  (HooksDispatcherOnRerender: Dispatcher).useEvent = updateEvent;
+if (enableUseEffectEventHook) {
+  (HooksDispatcherOnRerender: Dispatcher).useEffectEvent = updateEvent;
 }
 
 let HooksDispatcherOnMountInDEV: Dispatcher | null = null;
@@ -3059,13 +3059,13 @@ if (__DEV__) {
   if (enableUseMemoCacheHook) {
     (HooksDispatcherOnMountInDEV: Dispatcher).useMemoCache = useMemoCache;
   }
-  if (enableUseEventHook) {
-    (HooksDispatcherOnMountInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (HooksDispatcherOnMountInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       mountHookTypesDev();
       return mountEvent(callback);
     };
@@ -3214,13 +3214,13 @@ if (__DEV__) {
   if (enableUseMemoCacheHook) {
     (HooksDispatcherOnMountWithHookTypesInDEV: Dispatcher).useMemoCache = useMemoCache;
   }
-  if (enableUseEventHook) {
-    (HooksDispatcherOnMountWithHookTypesInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (HooksDispatcherOnMountWithHookTypesInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       updateHookTypesDev();
       return mountEvent(callback);
     };
@@ -3369,13 +3369,13 @@ if (__DEV__) {
   if (enableUseMemoCacheHook) {
     (HooksDispatcherOnUpdateInDEV: Dispatcher).useMemoCache = useMemoCache;
   }
-  if (enableUseEventHook) {
-    (HooksDispatcherOnUpdateInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (HooksDispatcherOnUpdateInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       updateHookTypesDev();
       return updateEvent(callback);
     };
@@ -3525,13 +3525,13 @@ if (__DEV__) {
   if (enableUseMemoCacheHook) {
     (HooksDispatcherOnRerenderInDEV: Dispatcher).useMemoCache = useMemoCache;
   }
-  if (enableUseEventHook) {
-    (HooksDispatcherOnRerenderInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (HooksDispatcherOnRerenderInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       updateHookTypesDev();
       return updateEvent(callback);
     };
@@ -3707,13 +3707,13 @@ if (__DEV__) {
       return useMemoCache(size);
     };
   }
-  if (enableUseEventHook) {
-    (InvalidNestedHooksDispatcherOnMountInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (InvalidNestedHooksDispatcherOnMountInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       warnInvalidHookAccess();
       mountHookTypesDev();
       return mountEvent(callback);
@@ -3890,13 +3890,13 @@ if (__DEV__) {
       return useMemoCache(size);
     };
   }
-  if (enableUseEventHook) {
-    (InvalidNestedHooksDispatcherOnUpdateInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (InvalidNestedHooksDispatcherOnUpdateInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       warnInvalidHookAccess();
       updateHookTypesDev();
       return updateEvent(callback);
@@ -4074,13 +4074,13 @@ if (__DEV__) {
       return useMemoCache(size);
     };
   }
-  if (enableUseEventHook) {
-    (InvalidNestedHooksDispatcherOnRerenderInDEV: Dispatcher).useEvent = function useEvent<
+  if (enableUseEffectEventHook) {
+    (InvalidNestedHooksDispatcherOnRerenderInDEV: Dispatcher).useEffectEvent = function useEffectEvent<
       Args,
       Return,
       F: (...Array<Args>) => Return,
     >(callback: F): F {
-      currentHookNameInDev = 'useEvent';
+      currentHookNameInDev = 'useEffectEvent';
       warnInvalidHookAccess();
       updateHookTypesDev();
       return updateEvent(callback);

@@ -244,6 +244,7 @@ class ReactFabricHostComponent {
     eventType: string,
     listener: EventListener,
     options: EventListenerOptions | boolean,
+    // $FlowFixMe[missing-local-annot]
   ) {
     if (typeof eventType !== 'string') {
       throw new Error('addEventListener_unstable eventType must be a string');
@@ -321,7 +322,6 @@ class ReactFabricHostComponent {
   }
 }
 
-// eslint-disable-next-line no-unused-expressions
 // $FlowFixMe[class-object-subtyping] found when upgrading Flow
 // $FlowFixMe[method-unbinding] found when upgrading Flow
 (ReactFabricHostComponent.prototype: $ReadOnly<{...NativeMethods, ...}>);

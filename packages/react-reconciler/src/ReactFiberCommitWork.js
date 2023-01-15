@@ -17,6 +17,7 @@ import type {
 } from './ReactFiberHostConfig';
 import type {Fiber, FiberRoot} from './ReactInternalTypes';
 import type {Lanes} from './ReactFiberLane';
+import {NoTimestamp, SyncLane} from './ReactFiberLane';
 import type {SuspenseState} from './ReactFiberSuspenseComponent';
 import type {UpdateQueue} from './ReactFiberClassUpdateQueue';
 import type {FunctionComponentUpdateQueue} from './ReactFiberHooks';
@@ -49,7 +50,7 @@ import {
   enableUpdaterTracking,
   enableCache,
   enableTransitionTracing,
-  enableUseEventHook,
+  enableUseEffectEventHook,
   enableFloat,
   enableLegacyHidden,
   enableHostSingletons,
@@ -152,7 +153,6 @@ import {
   clearSingleton,
   acquireSingletonInstance,
   releaseSingletonInstance,
-  scheduleMicrotask,
 } from './ReactFiberHostConfig';
 import {
   captureCommitPhaseError,
@@ -169,7 +169,6 @@ import {
   setIsRunningInsertionEffect,
   getExecutionContext,
   CommitContext,
-  RenderContext,
   NoContext,
 } from './ReactFiberWorkLoop';
 import {
@@ -205,6 +204,8 @@ import {
   TransitionRoot,
   TransitionTracingMarker,
 } from './ReactFiberTracingMarkerComponent';
+import {scheduleUpdateOnFiber} from './ReactFiberWorkLoop';
+import {enqueueConcurrentRenderForLane} from './ReactFiberConcurrentUpdates';
 
 let didWarnAboutUndefinedSnapshotBeforeUpdate: Set<mixed> | null = null;
 if (__DEV__) {
@@ -247,7 +248,10 @@ export function reportUncaughtErrorInDEV(error: mixed) {
   }
 }
 
-const callComponentWillUnmountWithTimer = function(current, instance) {
+const callComponentWillUnmountWithTimer = function(
+  current: Fiber,
+  instance: any,
+) {
   instance.props = current.memoizedProps;
   instance.state = current.memoizedState;
   if (shouldProfile(current)) {
@@ -453,9 +457,9 @@ function commitBeforeMutationEffectsOnFiber(finishedWork: Fiber) {
 
   switch (finishedWork.tag) {
     case FunctionComponent: {
-      if (enableUseEventHook) {
+      if (enableUseEffectEventHook) {
         if ((flags & Update) !== NoFlags) {
-          commitUseEventMount(finishedWork);
+          commitUseEffectEventMount(finishedWork);
         }
       }
       break;
@@ -705,7 +709,7 @@ function commitHookEffectListMount(flags: HookFlags, finishedWork: Fiber) {
   }
 }
 
-function commitUseEventMount(finishedWork: Fiber) {
+function commitUseEffectEventMount(finishedWork: Fiber) {
   const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
   const eventPayloads = updateQueue !== null ? updateQueue.events : null;
   if (eventPayloads !== null) {
@@ -1494,7 +1498,7 @@ function commitTransitionProgress(offscreenFiber: Fiber) {
   }
 }
 
-function hideOrUnhideAllChildren(finishedWork, isHidden) {
+function hideOrUnhideAllChildren(finishedWork: Fiber, isHidden: boolean) {
   // Only hide or unhide the top-most host nodes.
   let hostSubtreeRoot = null;
 
@@ -2017,9 +2021,9 @@ function commitDeletionEffects(
 }
 
 function recursivelyTraverseDeletionEffects(
-  finishedRoot,
-  nearestMountedAncestor,
-  parent,
+  finishedRoot: FiberRoot,
+  nearestMountedAncestor: Fiber,
+  parent: Fiber,
 ) {
   // TODO: Use a static flag to skip trees that don't have unmount effects
   let child = parent.child;
@@ -2373,7 +2377,7 @@ function commitSuspenseHydrationCallbacks(
   }
 }
 
-function getRetryCache(finishedWork) {
+function getRetryCache(finishedWork: Fiber) {
   // TODO: Unify the interface for the retry cache so we don't have to switch
   // on the tag like this.
   switch (finishedWork.tag) {
@@ -2387,12 +2391,9 @@ function getRetryCache(finishedWork) {
     }
     case OffscreenComponent: {
       const instance: OffscreenInstance = finishedWork.stateNode;
-      // $FlowFixMe[incompatible-type-arg] found when upgrading Flow
       let retryCache: null | Set<Wakeable> | WeakSet<Wakeable> =
-        // $FlowFixMe[incompatible-type] found when upgrading Flow
         instance._retryCache;
       if (retryCache === null) {
-        // $FlowFixMe[incompatible-type]
         retryCache = instance._retryCache = new PossiblyWeakSet();
       }
       return retryCache;
@@ -2407,24 +2408,44 @@ function getRetryCache(finishedWork) {
 }
 
 export function detachOffscreenInstance(instance: OffscreenInstance): void {
-  const currentOffscreenFiber = instance._current;
-  if (currentOffscreenFiber === null) {
+  const fiber = instance._current;
+  if (fiber === null) {
     throw new Error(
       'Calling Offscreen.detach before instance handle has been set.',
     );
   }
 
-  const executionContext = getExecutionContext();
-  if ((executionContext & (RenderContext | CommitContext)) !== NoContext) {
-    scheduleMicrotask(() => {
-      instance._visibility |= OffscreenDetached;
-      disappearLayoutEffects(currentOffscreenFiber);
-      disconnectPassiveEffect(currentOffscreenFiber);
-    });
-  } else {
-    instance._visibility |= OffscreenDetached;
-    disappearLayoutEffects(currentOffscreenFiber);
-    disconnectPassiveEffect(currentOffscreenFiber);
+  if ((instance._pendingVisibility & OffscreenDetached) !== NoFlags) {
+    // The instance is already detached, this is a noop.
+    return;
+  }
+
+  // TODO: There is an opportunity to optimise this by not entering commit phase
+  // and unmounting effects directly.
+  const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
+  if (root !== null) {
+    instance._pendingVisibility |= OffscreenDetached;
+    scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);
+  }
+}
+
+export function attachOffscreenInstance(instance: OffscreenInstance): void {
+  const fiber = instance._current;
+  if (fiber === null) {
+    throw new Error(
+      'Calling Offscreen.detach before instance handle has been set.',
+    );
+  }
+
+  if ((instance._pendingVisibility & OffscreenDetached) === NoFlags) {
+    // The instance is already attached, this is a noop.
+    return;
+  }
+
+  const root = enqueueConcurrentRenderForLane(fiber, SyncLane);
+  if (root !== null) {
+    instance._pendingVisibility &= ~OffscreenDetached;
+    scheduleUpdateOnFiber(root, fiber, SyncLane, NoTimestamp);
   }
 }
 
@@ -2857,12 +2878,19 @@ function commitMutationEffectsOnFiber(
       }
 
       commitReconciliationEffects(finishedWork);
+
+      const offscreenInstance: OffscreenInstance = finishedWork.stateNode;
+
       // TODO: Add explicit effect flag to set _current.
-      finishedWork.stateNode._current = finishedWork;
+      offscreenInstance._current = finishedWork;
+
+      // Offscreen stores pending changes to visibility in `_pendingVisibility`. This is
+      // to support batching of `attach` and `detach` calls.
+      offscreenInstance._visibility &= ~OffscreenDetached;
+      offscreenInstance._visibility |=
+        offscreenInstance._pendingVisibility & OffscreenDetached;
 
       if (flags & Visibility) {
-        const offscreenInstance: OffscreenInstance = finishedWork.stateNode;
-
         // Track the current state on the Offscreen instance so we can
         // read it during an event
         if (isHidden) {
@@ -3989,7 +4017,7 @@ function detachAlternateSiblings(parentFiber: Fiber) {
 
 function commitHookPassiveUnmountEffects(
   finishedWork: Fiber,
-  nearestMountedAncestor,
+  nearestMountedAncestor: null | Fiber,
   hookFlags: HookFlags,
 ) {
   if (shouldProfile(finishedWork)) {

@@ -13,7 +13,6 @@
 // Flags that can likely be deleted or landed without consequences
 // -----------------------------------------------------------------------------
 
-export const warnAboutDeprecatedLifecycles = true;
 export const enableComponentStackLocations = true;
 export const disableSchedulerTimeoutBasedOnReactExpirationTime = false;
 
@@ -121,7 +120,7 @@ export const enableUseHook = true;
 // auto-memoization.
 export const enableUseMemoCacheHook = __EXPERIMENTAL__;
 
-export const enableUseEventHook = __EXPERIMENTAL__;
+export const enableUseEffectEventHook = __EXPERIMENTAL__;
 
 // Test in www before enabling in open source.
 // Enables DOM-server to stream its instruction set as data-attributes
@@ -150,6 +149,8 @@ export const enableUseRefAccessWarning = false;
 
 // Enables time slicing for updates that aren't wrapped in startTransition.
 export const enableSyncDefaultUpdates = true;
+
+export const enableUnifiedSyncLane = __EXPERIMENTAL__;
 
 // Adds an opt-in to time slicing for updates that aren't wrapped in
 // startTransition. Only relevant when enableSyncDefaultUpdates is disabled.
@@ -206,16 +207,9 @@ export const disableTextareaChildren = false;
 
 // New API for JSX transforms to target - https://github.com/reactjs/rfcs/pull/107
 
-// Part of the simplification of React.createElement so we can eventually move
-// from React.createElement to React.jsx
-// https://github.com/reactjs/rfcs/blob/createlement-rfc/text/0000-create-element-changes.md
-export const warnAboutDefaultPropsOnFunctionComponents = true; // deprecate later, not 18.0
-
 // Enables a warning when trying to spread a 'key' to an element;
 // a deprecated pattern we want to get rid of in the future
 export const warnAboutSpreadingKeyToJSX = true;
-
-export const warnAboutStringRefs = true;
 
 // -----------------------------------------------------------------------------
 // Debugging and DevTools
